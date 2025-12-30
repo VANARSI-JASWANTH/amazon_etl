@@ -1,0 +1,95 @@
+# T0012: Build config-driven cleaning rules
+# ETL Cleaning Configuration for Amazon Training Dataset
+# This file defines data cleaning rules for the Amazon ETL pipeline
+
+# Column-specific cleaning rules
+columns:
+  CustomerName:
+    required: true
+    trim: true
+    uppercase: false  # Keep original case for product names
+    drop_if_missing: false
+
+  Email:
+    required: true
+    trim: true
+    validate_format: true
+    regex_pattern: '^[\w\.-]+@[\w\.-]+\.\w+$'
+    drop_if_missing: false
+
+  Age:
+    required: false
+    data_type: int
+    fill_strategy: mean
+    min_value: 18
+    max_value: 65
+
+  Phone:
+    required: false
+    data_type: str
+    fill_strategy: drop
+    standardize_format: true
+
+  OrderDate:
+    required: true
+    data_type: datetime
+    fill_strategy: drop
+    date_format: '%Y-%m-%d'
+
+  TotalAmount:
+    required: true
+    data_type: float
+    fill_strategy: drop
+
+# Global cleaning rules
+global:
+  remove_duplicates:
+    enabled: true
+    subset: ['OrderID']
+    keep: 'first'
+
+  handle_missing:
+    enabled: true
+    strategies:
+      numeric: 'mean'  # Options: mean, median, mode, drop, fill_value
+      categorical: 'mode'
+      datetime: 'drop'
+
+  trim_whitespace:
+    enabled: true
+    apply_to_all_strings: true
+
+  remove_empty_strings:
+    enabled: true
+    replace_with_nan: true
+
+# Data type conversions
+type_casting:
+  Age: int
+  Phone: str
+  Email: str
+  CustomerName: str
+  OrderDate: datetime
+  TotalAmount: float
+  Quantity: int
+
+# Data validation rules
+validation:
+  email_format: true
+  age_range:
+    min: 18
+    max: 65
+  phone_digits: 10
+  required_columns:
+    - CustomerName
+    - Email
+    - OrderID
+
+# Output settings
+output:
+  sort_by: 'OrderDate'
+  sort_ascending: false
+  save_formats:
+    - csv
+    - xlsx
+    - postgresql

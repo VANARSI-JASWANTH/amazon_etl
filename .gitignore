@@ -1,0 +1,5 @@
+logs/
+__pycache__/
+*.pyc
+.idea/
+data/raw/*.xlsx

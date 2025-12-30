@@ -1,0 +1,109 @@
+version: "3.8"
+
+services:
+
+  init_dirs:
+    image: alpine:3.18
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "Initializer: creating project folders under /workspace"
+        mkdir -p /workspace/dags \
+                 /workspace/plugins \
+                 /workspace/logs \
+                 /workspace/scripts \
+                 /workspace/data_models \
+                 /workspace/data/raw \
+                 /workspace/data/staging \
+                 /workspace/data/processed
+        # set ownership so Airflow UID in container owns files on host
+        chown -R ${AIRFLOW_UID}:${AIRFLOW_GID:-50000} /workspace
+        echo "Created and chowned:"
+        ls -la /workspace
+        exit 0
+    volumes:
+      - ../:/workspace:rw
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-airflow}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB:-airflow}"
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airflow} -d ${POSTGRES_DB:-airflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  webserver:
+    image: apache/airflow:2.8.3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__WEBSERVER__WORKERS: "2"
+      AIRFLOW__WEBSERVER__RBAC: "True"
+      _PIP_ADDITIONAL_REQUIREMENTS: "openpyxl"
+      AIRFLOW_UID: "${AIRFLOW_UID}"
+    volumes:
+      - ../dags:/opt/airflow/dags
+      - ../logs:/opt/airflow/logs
+      - ../plugins:/opt/airflow/plugins
+      - ../scripts:/opt/airflow/scripts
+      - ../data_models:/opt/airflow/data_models
+      - ../data:/opt/airflow/data
+    ports:
+      - "8080:8080"
+    command: webserver
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  scheduler:
+    image: apache/airflow:2.8.3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      _PIP_ADDITIONAL_REQUIREMENTS: "openpyxl"
+      AIRFLOW_UID: "${AIRFLOW_UID}"
+    volumes:
+      - ../dags:/opt/airflow/dags
+      - ../logs:/opt/airflow/logs
+      - ../plugins:/opt/airflow/plugins
+      - ../scripts:/opt/airflow/scripts
+      - ../data_models:/opt/airflow/data_models
+      - ../data:/opt/airflow/data
+    command: scheduler
+
+volumes:
+  postgres-db:
+  redis-data:

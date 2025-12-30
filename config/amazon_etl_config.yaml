@@ -1,0 +1,36 @@
+# T0017: Config-based transformation rules
+# ETL Pipeline Configuration for Amazon Training Dataset
+
+# Data source configuration
+data_source:
+  input_path: "data/raw/amazon.csv"
+  input_format: "csv"  # Options: csv, excel, json
+
+# Data destination configuration
+data_destination:
+  output_path: "data/processed/amazon_cleaned_data.csv"
+  output_formats:
+    - csv
+    - xlsx
+  csv_path: "data/processed/amazon_cleaned_data.csv"
+  xlsx_path: "data/processed/amazon_cleaned_data.xlsx"
+
+# Database configuration
+database:
+  type: "postgresql"
+  host: "postgres"
+  port: 5432
+  database: "airflow"
+  username: "airflow"
+  password: "airflow"
+  table_name: "amazon_orders_cleaned"
+  if_exists: "replace"  # Options: fail, replace, append
+
+# Cleaning rules reference
+cleaning_rules_file: "config/amazon_cleaning_rules.yaml"
+
+# Logging configuration
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_file: "logs/amazon_etl_pipeline.log"
