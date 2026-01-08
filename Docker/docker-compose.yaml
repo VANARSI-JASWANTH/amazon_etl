@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
 
   init_dirs:
@@ -18,7 +16,6 @@ services:
                  /workspace/data/raw \
                  /workspace/data/staging \
                  /workspace/data/processed
-        # set ownership so Airflow UID in container owns files on host
         chown -R ${AIRFLOW_UID}:${AIRFLOW_GID:-50000} /workspace
         echo "Created and chowned:"
         ls -la /workspace
@@ -29,13 +26,15 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: "${POSTGRES_USER:-airflow}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-      POSTGRES_DB: "${POSTGRES_DB:-airflow}"
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
     volumes:
       - postgres-db:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airflow} -d ${POSTGRES_DB:-airflow}"]
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
       interval: 10s
       timeout: 5s
       retries: 5
