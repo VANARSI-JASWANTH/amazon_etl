@@ -95,6 +95,7 @@ def _upsert_records(engine, df: pd.DataFrame, table_name: str, key_col: str, chu
 # ========================================
 def load(
     df: pd.DataFrame,
+    #orders_summary_df: pd.DataFrame = None,
     csv_path: str = "cleaned_data.csv",
     xlsx_path: str = "cleaned_data.xlsx",
     load_type: str = "full",
@@ -179,6 +180,18 @@ def load(
                 index=False,
                 chunksize=bulk_chunk_size  # Bulk load in chunks for better performance
             )
+            #      if orders_summary_df is not None and not orders_summary_df.empty:
+            #     orders_summary_df.to_sql(
+            #        "orders_summary",
+            #        engine,
+            #        if_exists=if_exists_mode,
+            #        index=False,
+            #        chunksize=bulk_chunk_size
+            #    )
+            #    print("[LOAD] ✓ Written to PostgreSQL table: orders_summary") 
+
+
+            
             print(f"[LOAD] ✓ T0018: Bulk load written to PostgreSQL (chunk_size: {bulk_chunk_size})")
         
         print(f"[LOAD] ✓ Written to PostgreSQL table: customers_cleaned (mode: {load_type})")
