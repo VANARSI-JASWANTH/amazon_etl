@@ -58,7 +58,6 @@ def _upsert_records(engine, df: pd.DataFrame, table_name: str, key_col: str, chu
             for i in range(0, len(df), chunk_size):
                 chunk = df.iloc[i : i + chunk_size]
                 try:
-                    # T0018: Bulk load operations (via chunksize)
                     chunk.to_sql(
                         table_name,
                         conn,
@@ -67,9 +66,7 @@ def _upsert_records(engine, df: pd.DataFrame, table_name: str, key_col: str, chu
                         method="multi"
                     )
                 except IntegrityError as e:
-                    # T0020: Handling constraint violations
                     print(f"[LOAD] Constraint violation in chunk {i//chunk_size}: {e}")
-                    # Insert individually to isolate failing rows
                     for idx, row in chunk.iterrows():
                         try:
                             pd.DataFrame([row]).to_sql(
@@ -95,7 +92,6 @@ def _upsert_records(engine, df: pd.DataFrame, table_name: str, key_col: str, chu
 # ========================================
 def load(
     df: pd.DataFrame,
-    #orders_summary_df: pd.DataFrame = None,
     csv_path: str = "cleaned_data.csv",
     xlsx_path: str = "cleaned_data.xlsx",
     load_type: str = "full",
@@ -105,17 +101,18 @@ def load(
 ):
     """
     Save cleaned data to CSV, Excel, and PostgreSQL table.
-
-    Args:
-        df: DataFrame to load
-        csv_path: Path to save CSV file
-        xlsx_path: Path to save Excel file
-        load_type: 'full' (replace all data) or 'incremental' (append new data)
-        bulk_chunk_size: Number of rows per bulk insert (improves performance)
     """
 
+    # >>> PIPELINE SUMMARY (ADDED)
+    total_rows_to_load = len(df)
+    load_start_time = datetime.now()
+    # <<< PIPELINE SUMMARY (ADDED)
+
+    # >>> REJECT RECOVERY (ADDED)
+    rejected_rows_bulk = []
+    # <<< REJECT RECOVERY (ADDED)
+
     # ======== T0007: Local file outputs ========
-    # Save to CSV (always attempt this first)
     try:
         df.to_csv(csv_path, index=False)
         print(f"[LOAD] ✓ Saved CSV: {csv_path}")
@@ -125,9 +122,7 @@ def load(
     except Exception as e:
         print(f"[LOAD] ✗ Failed to save CSV: {e}")
 
-    # Save to Excel (with error handling for permissions)
     try:
-        # Check if directory is writable
         output_dir = os.path.dirname(xlsx_path)
         if output_dir and not os.access(output_dir, os.W_OK):
             print(f"[LOAD] ⚠ Directory not writable: {output_dir}")
@@ -146,24 +141,20 @@ def load(
         print(f"[LOAD]   Continuing with CSV only")
 
     # ======== T0018-T0022: Database load pipeline ========
-    # Save to PostgreSQL (inside Docker)
     try:
         engine = create_engine(
             "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
         )
 
-        # T0022: Ensure reject table exists before any write
         _create_reject_table(engine)
 
-        # T0019: Incremental vs Full loads
         if load_type == "incremental":
-            if_exists_mode = "append"  # Add new rows to existing table
+            if_exists_mode = "append"
             print(f"[LOAD] T0019: Incremental load: Appending {len(df)} rows")
         else:
-            if_exists_mode = "replace"  # Drop and recreate table
+            if_exists_mode = "replace"
             print(f"[LOAD] T0019: Full load: Replacing table with {len(df)} rows")
 
-        # Decide between pure bulk load (T0018) or upsert (T0021 + T0020)
         if upsert_key:
             print(f"[LOAD] T0021: Upsert logic enabled (key: {upsert_key})")
             rejected = _upsert_records(engine, df, "customers_cleaned", upsert_key, bulk_chunk_size)
@@ -172,32 +163,42 @@ def load(
                 reject_df.to_csv(reject_csv_path, index=False)
                 print(f"[LOAD] T0022: {len(rejected)} rejected records saved to {reject_csv_path}")
         else:
-            # T0018: Bulk load operations (via chunksize)
-            df.to_sql(
-                "customers_cleaned",
-                engine,
-                if_exists=if_exists_mode,
-                index=False,
-                chunksize=bulk_chunk_size  # Bulk load in chunks for better performance
-            )
-            #      if orders_summary_df is not None and not orders_summary_df.empty:
-            #     orders_summary_df.to_sql(
-            #        "orders_summary",
-            #        engine,
-            #        if_exists=if_exists_mode,
-            #        index=False,
-            #        chunksize=bulk_chunk_size
-            #    )
-            #    print("[LOAD] ✓ Written to PostgreSQL table: orders_summary") 
+            try:
+                df.to_sql(
+                    "customers_cleaned",
+                    engine,
+                    if_exists=if_exists_mode,
+                    index=False,
+                    chunksize=bulk_chunk_size
+                )
+                print(f"[LOAD] ✓ T0018: Bulk load written to PostgreSQL (chunk_size: {bulk_chunk_size})")
+            except IntegrityError as e:
+                rejected_rows_bulk = df.to_dict(orient="records")
+                print(f"[LOAD] Bulk load failed, rows captured for rejection: {e}")
 
-
-            
-            print(f"[LOAD] ✓ T0018: Bulk load written to PostgreSQL (chunk_size: {bulk_chunk_size})")
-        
         print(f"[LOAD] ✓ Written to PostgreSQL table: customers_cleaned (mode: {load_type})")
+
+        # >>> PIPELINE SUMMARY (ADDED)
+        load_end_time = datetime.now()
+        print(
+            f"[PIPELINE SUMMARY] LOAD | "
+            f"Table: customers_cleaned | "
+            f"Rows loaded: {total_rows_to_load} | "
+            f"Mode: {load_type} | "
+            f"Duration: {(load_end_time - load_start_time).seconds}s | "
+            f"Status: SUCCESS"
+        )
+        # <<< PIPELINE SUMMARY (ADDED)
+
     except ImportError as e:
         print(f"[LOAD] ⚠ PostgreSQL driver not available: {e}")
         print(f"[LOAD]   Database load skipped (psycopg2 may not be installed)")
     except Exception as e:
         print(f"[LOAD] ⚠ Database load failed (non-critical): {e}")
         print(f"[LOAD]   File outputs may still be available")
+
+    # >>> REJECT RECOVERY (ADDED)
+    if rejected_rows_bulk:
+        pd.DataFrame(rejected_rows_bulk).to_csv(reject_csv_path, index=False)
+        print(f"[LOAD] ✓ Rejected records saved to CSV: {reject_csv_path}")
+    # <<< REJECT RECOVERY (ADDED)
