@@ -7,6 +7,10 @@ def transform_amazon(df: pd.DataFrame):
     Handles mixed types, missing values, and data quality issues specific to Amazon dataset.
     """
 
+    # ---------------- PIPELINE EXECUTION SUMMARY ----------------
+    rows_before_transform = len(df)
+    # ------------------------------------------------------------
+
     print(f"Starting transformation on {len(df)} rows")
     print(f"Columns: {df.columns.tolist()}")
 
@@ -31,19 +35,17 @@ def transform_amazon(df: pd.DataFrame):
     # ========================================
     # T0009: Handle incorrect data types
     # ========================================
-    # Age: Remove quoted strings like "26", convert to numeric
     df["Age"] = df["Age"].astype(str).str.replace('"', '', regex=False)
     df["Age"] = pd.to_numeric(df["Age"], errors="coerce")
     print(f"Age column converted to numeric")
 
-    # Phone: Standardize format (keep only 10-digit numbers)
     def standardize_phone(phone_val):
         if pd.isna(phone_val) or phone_val == "":
             return np.nan
         phone_str = str(phone_val)
         digits_only = ''.join(filter(str.isdigit, phone_str))
         return digits_only if len(digits_only) == 10 else np.nan
-    
+
     df["Phone"] = df["Phone"].apply(standardize_phone)
     print(f"Phone column standardized. Missing: {df['Phone'].isna().sum()}")
 
@@ -53,7 +55,6 @@ def transform_amazon(df: pd.DataFrame):
     df = df.drop_duplicates(subset="OrderID", keep="first")
     print(f"After duplicate removal: {len(df)} rows")
 
-    # Email validation (before dropping missing values)
     valid_email_mask = (
         (df["Email"].isna()) | 
         (df["Email"].str.contains(r'^[\w\.-]+@[\w\.-]+\.\w+$', regex=True, na=False))
@@ -66,12 +67,10 @@ def transform_amazon(df: pd.DataFrame):
     # ========================================
     # T0011: Missing data handling strategies
     # ========================================
-    # Fill missing age with mean
     age_mean = df["Age"].mean()
     df["Age"] = df["Age"].fillna(age_mean).astype(int)
     print(f"Age filled with mean: {age_mean:.1f}, Missing after: {df['Age'].isna().sum()}")
 
-    # Drop rows with missing critical values
     critical_cols = ["OrderID", "CustomerID", "OrderDate", "TotalAmount", "Email", "Phone", "Age"]
     df = df.dropna(subset=critical_cols)
     print(f"After dropping rows with missing critical values: {len(df)} rows")
@@ -79,13 +78,11 @@ def transform_amazon(df: pd.DataFrame):
     # ========================================
     # T0016: Date/time transformations
     # ========================================
-    # Parse OrderDate to datetime
     df["OrderDate"] = pd.to_datetime(df["OrderDate"], errors="coerce")
     df = df.dropna(subset=["OrderDate"])
     df = df.sort_values(by="OrderDate", ascending=False)
     print(f"OrderDate parsed and sorted: {len(df)} rows")
 
-    # Extract date features (year, month, day_of_week)
     df["order_year"] = df["OrderDate"].dt.year
     df["order_month"] = df["OrderDate"].dt.month
     df["order_day_of_week"] = df["OrderDate"].dt.day_name()
@@ -94,7 +91,6 @@ def transform_amazon(df: pd.DataFrame):
     # ========================================
     # T0015: Feature engineering logic
     # ========================================
-    # Order amount categories
     df["order_amount_category"] = pd.cut(
         df["TotalAmount"],
         bins=[0, 500, 1000, 1500, 2000, np.inf],
@@ -102,7 +98,6 @@ def transform_amazon(df: pd.DataFrame):
     )
     print(f"Order amount categories created")
 
-    # Customer age groups
     df["age_group"] = pd.cut(
         df["Age"],
         bins=[0, 25, 35, 45, 55, 100],
@@ -113,7 +108,6 @@ def transform_amazon(df: pd.DataFrame):
     # ========================================
     # T0014: Normalization & scaling
     # ========================================
-    # Min-Max normalization for TotalAmount
     min_amount = df["TotalAmount"].min()
     max_amount = df["TotalAmount"].max()
     df["total_amount_normalized"] = (df["TotalAmount"] - min_amount) / (max_amount - min_amount)
@@ -122,24 +116,34 @@ def transform_amazon(df: pd.DataFrame):
     # ========================================
     # T0013: Aggregations (groupBy, sum, min, max)
     # ========================================
-    # Global order statistics
     total_orders = len(df)
     max_quantity = df["Quantity"].max()
     min_quantity = df["Quantity"].min()
     total_quantity = df["Quantity"].sum()
-    
+
     orders_summary_df = pd.DataFrame([{
         "total_orders": total_orders,
         "max_quantity": max_quantity,
         "min_quantity": min_quantity,
         "total_quantity": total_quantity
     }])
-    
+
     orders_summary_df.to_csv("data/processed/orders_summary.csv", index=False)
     orders_summary_df.to_excel("data/processed/orders_summary.xlsx", index=False)
+
+    # ---------------- PIPELINE EXECUTION SUMMARY ----------------
+    print(
+        f"[PIPELINE SUMMARY] TRANSFORM | orders | "
+        f"Rows before: {rows_before_transform} | Rows after: {len(df)}"
+    )
+    print(
+        f"[PIPELINE SUMMARY] TRANSFORM | orders_summary | "
+        f"Rows created: {len(orders_summary_df)}"
+    )
+    # ------------------------------------------------------------
+
     print(f"Order stats: total={total_orders}, max_qty={max_quantity}, min_qty={min_quantity}, total_qty={total_quantity}")
-    
-    # State-wise aggregations (groupBy)
+
     state_summary_df = (
         df.groupby("State").agg(
             total_orders=("OrderID", "count"),
@@ -148,23 +152,22 @@ def transform_amazon(df: pd.DataFrame):
             total_quantity=("Quantity", "sum")
         ).reset_index()
     )
-    
+
     state_summary_df.to_csv("data/processed/orders_summary.csv", mode="a", index=False)
-    
+
     with pd.ExcelWriter("data/processed/orders_summary.xlsx", engine="openpyxl") as writer:
         orders_summary_df.to_excel(writer, sheet_name="global_summary", index=False)
         state_summary_df.to_excel(writer, sheet_name="state_summary", index=False)
-    
+
     print(f"✓ Orders summary saved: orders_summary.csv & orders_summary.xlsx")
 
     # ========================================
     # T0016: Date/time transformations (final)
     # ========================================
-    # Convert datetime to string format for CSV output
     df["OrderDate"] = df["OrderDate"].dt.strftime('%Y-%m-%d')
 
     print(f"\nTransformation complete!")
     print(f"Final shape: {df.shape}")
     print(f"Columns: {df.columns.tolist()}")
-    
+
     return df
