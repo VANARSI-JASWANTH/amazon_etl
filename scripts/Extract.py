@@ -18,5 +18,19 @@ def extract(input_path: str):
 
     # Read the final CSV
     df = pd.read_csv(input_path)
+
+    # ---------------- PIPELINE EXECUTION SUMMARY ----------------
+    try:
+        dataset_name = input_path.split("/")[-1]
+        row_count = len(df)
+        print(
+            f"[PIPELINE SUMMARY] EXTRACT | "
+            f"Dataset: {dataset_name} | Rows extracted: {row_count}"
+        )
+    except Exception as e:
+        print(f"[PIPELINE SUMMARY] EXTRACT | Failed to capture summary: {e}")
+    # ------------------------------------------------------------
+
     return df
+
 extract
